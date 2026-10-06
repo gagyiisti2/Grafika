@@ -124,24 +124,53 @@ namespace GrafikaHomework
             Gl.BindVertexArray(vao);
 
             float[] vertexArray = new float[] {
-                -0.5f, -0.5f, 0.0f,
-                +0.5f, -0.5f, 0.0f,
-                 0.0f, +0.5f, 0.0f, // 1. Hiba: kitorolni ezt a sort
-                 1f, 1f, 0f
+                 // jobb oldali lap
+                 0.0f,  0.0f, 0.0f,
+                 0.0f, -0.5f, 0.0f,
+                 0.4f, -0.3f, 0.0f,
+                 0.4f,  0.15f, 0.0f,
+                 // bal oldali lap
+                 0.0f,  0.0f, 0.0f,
+                 0.0f, -0.5f, 0.0f,
+                -0.4f, -0.3f, 0.0f,
+                -0.4f,  0.15f, 0.0f,
+                 // felso lap
+                 0.0f,  0.0f, 0.0f,
+                 0.4f,  0.15f, 0.0f,
+                 0.0f,  0.3f, 0.0f,
+                -0.4f,  0.15f, 0.0f
+                 // 1. Hiba: 0.0f, +0.5f, 0.0f, kitorolni ezt a sort
                  // azt eredmenyezte, hogy nem negyszog, hanem haromszog alakja lett a kirajzolt formanak
                  // eltunt a pont ami a kozepponttol eszakra volt a canvas kozepen
             };
 
             float[] colorArray = new float[] {
+                // jobb oldali lap
                 1.0f, 0.0f, 0.0f, 1.0f,
+                1.0f, 0.0f, 0.0f, 1.0f,
+                1.0f, 0.0f, 0.0f, 1.0f,
+                1.0f, 0.0f, 0.0f, 1.0f,
+                // bal oldali lap
                 0.0f, 1.0f, 0.0f, 1.0f,
+                0.0f, 1.0f, 0.0f, 1.0f,
+                0.0f, 1.0f, 0.0f, 1.0f,
+                0.0f, 1.0f, 0.0f, 1.0f,
+                // felso lap
                 0.0f, 0.0f, 1.0f, 1.0f,
-                1.0f, 0.0f, 0.0f, 1.0f,
+                0.0f, 0.0f, 1.0f, 1.0f,
+                0.0f, 0.0f, 1.0f, 1.0f,
+                0.0f, 0.0f, 1.0f, 1.0f
             };
 
             uint[] indexArray = new uint[] {
                 0, 1, 2,
-                2, 1, 3
+                0, 2, 3,
+
+                4, 5, 6,
+                4, 6, 7,
+                
+                8, 9, 10,
+                8, 10,11
             };
 
             uint vertices = Gl.GenBuffer();
