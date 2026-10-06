@@ -11,6 +11,7 @@ namespace GrafikaHomework
 
         private static uint program;
 
+        // 5. a shader stringek modositasa
         private static readonly string VertexShaderSource = @"
         #version 330 core
         layout (location = 0) in vec3 vPos;
@@ -24,8 +25,8 @@ namespace GrafikaHomework
             gl_Position = vec4(vPos.x, vPos.y, vPos.z, 1.0);
         }
         ";
-
-
+        // ha a locationt valtoztatom akkor nem tolti be a szint/formakat
+        // Ha a poziciokat felcserelem (x-et y-al) : at
         private static readonly string FragmentShaderSource = @"
         #version 330 core
         out vec4 FragColor;
@@ -53,10 +54,17 @@ namespace GrafikaHomework
             graphicWindow.Run();
         }
 
+        private static void Check_Error(string message)
+        {
+            GLEnum error = Gl.GetError();
+            if (error != GLEnum.NoError)
+            {
+                throw new Exception(message + ": " + Gl.GetError());
+            }
+        }
+
         private static void GraphicWindow_Load()
         {
-            // egszeri beallitasokat
-            //Console.WriteLine("Loaded");
 
             Gl = graphicWindow.CreateOpenGL();
 
@@ -65,21 +73,29 @@ namespace GrafikaHomework
             uint vshader = Gl.CreateShader(ShaderType.VertexShader);
             uint fshader = Gl.CreateShader(ShaderType.FragmentShader);
 
+            Check_Error("Failed to create shaders");
+
             Gl.ShaderSource(vshader, VertexShaderSource);
             Gl.CompileShader(vshader);
             Gl.GetShader(vshader, ShaderParameterName.CompileStatus, out int vStatus);
             if (vStatus != (int)GLEnum.True)
                 throw new Exception("Vertex shader failed to compile: " + Gl.GetShaderInfoLog(vshader));
 
-            Gl.ShaderSource(fshader, FragmentShaderSource);
-            Gl.CompileShader(fshader);
+            // 4. CompileShader, AttachShader, LinkProgram sorrendek, kihagyások
 
+            Gl.ShaderSource(fshader, FragmentShaderSource);
+            Gl.CompileShader(fshader); // kitorolve ezt a sort
+                                       // Hiba: Error linking shader Attached fragment shader is not compiled.
+                                       // tehat a shader nem jon letre hogy leforditsa GLSL-re
+            Check_Error("Failed to compile shaders");
             program = Gl.CreateProgram();
+
             Gl.AttachShader(program, vshader);
             Gl.AttachShader(program, fshader);
-            Gl.LinkProgram(program);
+            Gl.LinkProgram(program); // Ha az attach ele tettem: Error linking shader Link called without any attached shader objects.
             Gl.DetachShader(program, vshader);
             Gl.DetachShader(program, fshader);
+            Check_Error("Failed to finish the shader's job");
             Gl.DeleteShader(vshader);
             Gl.DeleteShader(fshader);
 
@@ -110,8 +126,10 @@ namespace GrafikaHomework
             float[] vertexArray = new float[] {
                 -0.5f, -0.5f, 0.0f,
                 +0.5f, -0.5f, 0.0f,
-                 0.0f, +0.5f, 0.0f,
+                 0.0f, +0.5f, 0.0f, // 1. Hiba: kitorolni ezt a sort
                  1f, 1f, 0f
+                 // azt eredmenyezte, hogy nem negyszog, hanem haromszog alakja lett a kirajzolt formanak
+                 // eltunt a pont ami a kozepponttol eszakra volt a canvas kozepen
             };
 
             float[] colorArray = new float[] {
@@ -127,16 +145,22 @@ namespace GrafikaHomework
             };
 
             uint vertices = Gl.GenBuffer();
+            // 2. BindBuffer kitorlese : lefutott a program, nem toltodott be a kep a bufferbe
+            // igy a grafikus kartya nem fogja tudni hova toltse az adatot
             Gl.BindBuffer(GLEnum.ArrayBuffer, vertices);
-            Gl.BufferData(GLEnum.ArrayBuffer, (ReadOnlySpan<float>)vertexArray.AsSpan(), GLEnum.StaticDraw);
+            Gl.BufferData(GLEnum.ArrayBuffer, (ReadOnlySpan<float>)vertexArray.AsSpan(), GLEnum.StaticDraw); // itt amiatt nem tolti be, mert ki van hagyva az a fuggveny, hibat szinten nem dob
             Gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 0, null);
             Gl.EnableVertexAttribArray(0);
+            Check_Error("Failed to complete the vertices buffer");
 
             uint colors = Gl.GenBuffer();
             Gl.BindBuffer(GLEnum.ArrayBuffer, colors);
             Gl.BufferData(GLEnum.ArrayBuffer, (ReadOnlySpan<float>)colorArray.AsSpan(), GLEnum.StaticDraw);
             Gl.VertexAttribPointer(1, 4, VertexAttribPointerType.Float, false, 0, null);
-            Gl.EnableVertexAttribArray(1);
+            // 3. Hivas parameter atallitasa
+            Gl.EnableVertexAttribArray(1); // ha itt 2-re vagy barmi mas szamra irom at a szinek nem toltotnek be, es csak fekete negyszog rajzolodik ki
+            // a 0 a poziciokat tolti be, az 1 meg a szineket
+            Check_Error("Failed to complete the color buffer");
 
             uint indices = Gl.GenBuffer();
             Gl.BindBuffer(GLEnum.ElementArrayBuffer, indices);
@@ -149,6 +173,7 @@ namespace GrafikaHomework
             Gl.DrawElements(GLEnum.Triangles, (uint)indexArray.Length, GLEnum.UnsignedInt, null); // we used element buffer
             Gl.BindBuffer(GLEnum.ElementArrayBuffer, 0);
             Gl.BindVertexArray(vao);
+            Check_Error("Failed to complete the indicies buffer");
 
             // always unbound the vertex buffer first, so no halfway results are displayed by accident
             Gl.DeleteBuffer(vertices);
