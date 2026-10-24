@@ -13,11 +13,10 @@ namespace RubikKocka3D
 
         private static GL Gl;
 
-        private static ModelObjectDescriptor cube;
+        private static List<ModelObjectDescriptor> cubes = new List<ModelObjectDescriptor>();
+        private static List<Vector3> cubePositions = new List<Vector3>();
 
         private static CameraDescriptor camera = new CameraDescriptor();
-
-        private static CubeArrangementModel cubeArrangementModel = new CubeArrangementModel();
 
         private const string ModelMatrixVariableName = "uModel";
         private const string ViewMatrixVariableName = "uView";
@@ -74,21 +73,16 @@ namespace RubikKocka3D
 
         private static void GraphicWindow_Closing()
         {
-            cube.Dispose();
+            foreach(var cube in cubes)
+            {
+                cube.Dispose();
+            }
             Gl.DeleteProgram(program);
         }
 
         private static void GraphicWindow_Load()
         {
             Gl = graphicWindow.CreateOpenGL();
-
-            var inputContext = graphicWindow.CreateInput();
-            foreach (var keyboard in inputContext.Keyboards)
-            {
-                keyboard.KeyDown += Keyboard_KeyDown;
-            }
-
-            cube = ModelObjectDescriptor.CreateCube(Gl);
 
             Gl.ClearColor(System.Drawing.Color.White);
 
@@ -123,57 +117,12 @@ namespace RubikKocka3D
             Gl.DetachShader(program, fshader);
             Gl.DeleteShader(vshader);
             Gl.DeleteShader(fshader);
-            if ((ErrorCode)Gl.GetError() != ErrorCode.NoError)
-            {
-
-            }
 
             Gl.GetProgram(program, GLEnum.LinkStatus, out var status);
             if (status == 0)
             {
                 Console.WriteLine($"Error linking shader {Gl.GetProgramInfoLog(program)}");
             }
-        }
-
-        private static void Keyboard_KeyDown(IKeyboard keyboard, Key key, int arg3)
-        {
-            switch (key)
-            {
-                case Key.Left:
-                    camera.DecreaseZYAngle();
-                    break;
-                case Key.Right:
-                    camera.IncreaseZYAngle();
-                    break;
-                case Key.Down:
-                    camera.IncreaseDistance();
-                    break;
-                case Key.Up:
-                    camera.DecreaseDistance();
-                    break;
-                case Key.U:
-                    camera.IncreaseZXAngle();
-                    break;
-                case Key.D:
-                    camera.DecreaseZXAngle();
-                    break;
-                case Key.Space:
-                    cubeArrangementModel.AnimationEnabled = !cubeArrangementModel.AnimationEnabled;
-                    break;
-            }
-        }
-
-        private static void GraphicWindow_Update(double deltaTime)
-        {
-            // NO OpenGL
-            // make it threadsafe
-            cubeArrangementModel.AdvanceTime(deltaTime);
-        }
-
-        private static unsafe void GraphicWindow_Render(double deltaTime)
-        {
-            Gl.Clear(ClearBufferMask.ColorBufferBit);
-            Gl.Clear(ClearBufferMask.DepthBufferBit);
 
             Gl.UseProgram(program);
 
@@ -183,21 +132,42 @@ namespace RubikKocka3D
             var projectionMatrix = Matrix4X4.CreatePerspectiveFieldOfView<float>((float)(Math.PI / 2), 1024f / 768f, 0.1f, 100f);
             SetMatrix(projectionMatrix, ProjectionMatrixVariableName);
 
+            for (int x = -1; x <= 1; x++)
+            {
+                for (int y = -1; y <= 1; y++)
+                {
+                    for (int z = -1; z <= 1; z++)
+                    {
+                        
+                        cubes.Add(ModelObjectDescriptor.CreateCube(Gl, GenerateColors(x,y,z)));
+                        cubePositions.Add(new Vector3(x, y, z));
+                    }
+                }
+            }
+        }
 
-            var modelMatrixCenterCube = Matrix4X4.CreateScale((float)cubeArrangementModel.CenterCubeScale);
-            SetMatrix(modelMatrixCenterCube, ModelMatrixVariableName);
-            DrawModelObject(cube);
+        private static void GraphicWindow_Update(double deltaTime)
+        {
+            // NO OpenGL
+            // make it threadsafe
+            //cubeArrangementModel.AdvanceTime(deltaTime);
+        }
 
-            Matrix4X4<float> diamondScale = Matrix4X4.CreateScale(0.25f);
-            Matrix4X4<float> rotx = Matrix4X4.CreateRotationX((float)Math.PI / 4f);
-            Matrix4X4<float> rotz = Matrix4X4.CreateRotationZ((float)Math.PI / 4f);
-            Matrix4X4<float> roty = Matrix4X4.CreateRotationY((float)cubeArrangementModel.DiamondCubeLocalAngle);
-            Matrix4X4<float> trans = Matrix4X4.CreateTranslation(1f, 1f, 0f);
-            Matrix4X4<float> rotGlobalY = Matrix4X4.CreateRotationY((float)cubeArrangementModel.DiamondCubeGlobalYAngle);
-            Matrix4X4<float> dimondCubeModelMatrix = diamondScale * rotx * rotz * roty * trans * rotGlobalY;
-            SetMatrix(dimondCubeModelMatrix, ModelMatrixVariableName);
-            DrawModelObject(cube);
+        private static unsafe void GraphicWindow_Render(double deltaTime)
+        {
+            Gl.Clear(ClearBufferMask.ColorBufferBit);
+            Gl.Clear(ClearBufferMask.DepthBufferBit);
+            Gl.UseProgram(program);
 
+            float spacing = 1.1f;
+            for (int i = 0; i < cubes.Count; i++)
+            {
+                var pos = cubePositions[i];
+                var modelMatrix = Matrix4X4.CreateTranslation(pos.X * spacing, pos.Y * spacing, pos.Z * spacing);
+
+                SetMatrix(modelMatrix, ModelMatrixVariableName);
+                DrawModelObject(cubes[i]);
+            }
         }
 
         private static unsafe void DrawModelObject(ModelObjectDescriptor modelObject)
@@ -226,6 +196,42 @@ namespace RubikKocka3D
             var error = (ErrorCode)Gl.GetError();
             if (error != ErrorCode.NoError)
                 throw new Exception("GL.GetError() returned " + error.ToString());
+        }
+
+        private static float[] GenerateColors(int x, int y, int z) // 
+        {
+            float[] colors = new float[96];
+            for (int i = 0; i < 96; i++)
+            {
+                colors[i] = (i % 4 == 3) ? 1.0f : 0.2f; // szurke szin
+            }
+
+            // Felso
+            if (y == 1) SetFaceColor(colors, 0, 1.0f, 0.0f, 0.0f); // piros
+            // Elulso
+            if (z == 1) SetFaceColor(colors, 1, 0.0f, 1.0f, 0.0f); // zold
+            // Bal
+            if (x == -1) SetFaceColor(colors, 2, 0.0f, 0.0f, 1.0f); // kek
+            // Also
+            if (y == -1) SetFaceColor(colors, 3, 1.0f, 0.0f, 1.0f); // rozsaszin
+            // Hatso
+            if (z == -1) SetFaceColor(colors, 4, 0.0f, 1.0f, 1.0f); // vilagoskek
+            // Jobb
+            if (x == 1) SetFaceColor(colors, 5, 1.0f, 1.0f, 0.0f); // sarga
+
+            return colors;
+        }
+
+        private static unsafe void SetFaceColor(float[] colors, int faceIndex, float r, float g, float b)
+        {
+            int start = faceIndex * 16;
+            for (int i = 0; i < 4; i++)
+            {
+                colors[start + i * 4 + 0] = r;
+                colors[start + i * 4 + 1] = g;
+                colors[start + i * 4 + 2] = b;
+                colors[start + i * 4 + 3] = 1.0f;
+            }
         }
     }
 }
