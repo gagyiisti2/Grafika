@@ -179,6 +179,7 @@ namespace GrafikaHomework
             Gl.BindBuffer(GLEnum.ArrayBuffer, vertices);
             Gl.BufferData(GLEnum.ArrayBuffer, (ReadOnlySpan<float>)vertexArray.AsSpan(), GLEnum.StaticDraw); // itt amiatt nem tolti be, mert ki van hagyva az a fuggveny, hibat szinten nem dob
             Gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 0, null);
+            Gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 0, null);
             Gl.EnableVertexAttribArray(0);
             Check_Error("Failed to complete the vertices buffer");
 
