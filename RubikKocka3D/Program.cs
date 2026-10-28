@@ -18,6 +18,9 @@ namespace RubikKocka3D
 
         private static CameraDescriptor camera = new CameraDescriptor();
 
+        private static float currentAngle = 0f;
+        private static float targetAngle = 0f;
+
         private const string ModelMatrixVariableName = "uModel";
         private const string ViewMatrixVariableName = "uView";
         private const string ProjectionMatrixVariableName = "uProjection";
@@ -92,6 +95,11 @@ namespace RubikKocka3D
             Gl.Enable(EnableCap.DepthTest);
             Gl.DepthFunc(DepthFunction.Lequal);
 
+            var inputContext = graphicWindow.CreateInput();
+            foreach (var keyboard in inputContext.Keyboards)
+            {
+                keyboard.KeyDown += Keyboard_KeyDown;
+            }
 
             uint vshader = Gl.CreateShader(ShaderType.VertexShader);
             uint fshader = Gl.CreateShader(ShaderType.FragmentShader);
@@ -126,6 +134,64 @@ namespace RubikKocka3D
 
             Gl.UseProgram(program);
 
+        }
+        private static void Keyboard_KeyDown(IKeyboard keyboard, Key key, int arg3)
+        {
+            switch (key)
+            {
+                case Key.W:
+                    camera.IncreaseZXAngle();
+                    break;
+                case Key.A:
+                    camera.IncreaseZYAngle();
+                    break;
+                case Key.S:
+                    camera.DecreaseZXAngle();
+                    break;
+                case Key.D:
+                    camera.DecreaseZYAngle();
+                    break;
+                case Key.Down:
+                    camera.IncreaseDistance();
+                    break;
+                case Key.Up:
+                    camera.DecreaseDistance();
+                    break;
+                case Key.Right:
+                    camera.MoveRight();
+                    break;
+                case Key.Left:
+                    camera.MoveLeft();
+                    break;
+                case Key.Space:
+                    targetAngle += (float)(Math.PI / 2); // 90 fokkal kell elforgatni
+                    break;
+                case Key.Backspace:
+                    targetAngle -= (float)(Math.PI / 2);
+                    break;
+            }
+        }
+        private static void GraphicWindow_Update(double deltaTime)
+        {
+            float speed = (float)Math.PI * 1.5f;
+            if (currentAngle < targetAngle)
+            {
+                currentAngle += speed * (float)deltaTime;
+                if(currentAngle > targetAngle) currentAngle = targetAngle; 
+            }
+            else if (currentAngle > targetAngle)
+            {
+                currentAngle -= speed * (float)deltaTime;
+                if (currentAngle < targetAngle) currentAngle = targetAngle;
+            }
+        }
+
+        private static unsafe void GraphicWindow_Render(double deltaTime)
+        {
+            Gl.Clear(ClearBufferMask.ColorBufferBit);
+            Gl.Clear(ClearBufferMask.DepthBufferBit);
+            Gl.UseProgram(program);
+
             var viewMatrix = Matrix4X4.CreateLookAt(camera.Position, camera.Target, camera.UpVector);
             SetMatrix(viewMatrix, ViewMatrixVariableName);
 
@@ -138,32 +204,30 @@ namespace RubikKocka3D
                 {
                     for (int z = -1; z <= 1; z++)
                     {
-                        
-                        cubes.Add(ModelObjectDescriptor.CreateCube(Gl, GenerateColors(x,y,z)));
+
+                        cubes.Add(ModelObjectDescriptor.CreateCube(Gl, GenerateColors(x, y, z)));
                         cubePositions.Add(new Vector3(x, y, z));
                     }
                 }
             }
-        }
-
-        private static void GraphicWindow_Update(double deltaTime)
-        {
-            // NO OpenGL
-            // make it threadsafe
-            //cubeArrangementModel.AdvanceTime(deltaTime);
-        }
-
-        private static unsafe void GraphicWindow_Render(double deltaTime)
-        {
-            Gl.Clear(ClearBufferMask.ColorBufferBit);
-            Gl.Clear(ClearBufferMask.DepthBufferBit);
-            Gl.UseProgram(program);
 
             float spacing = 1.1f;
             for (int i = 0; i < cubes.Count; i++)
             {
                 var pos = cubePositions[i];
-                var modelMatrix = Matrix4X4.CreateTranslation(pos.X * spacing, pos.Y * spacing, pos.Z * spacing);
+                var translation = Matrix4X4.CreateTranslation(pos.X * spacing, pos.Y * spacing, pos.Z * spacing);
+
+                Matrix4X4<float> modelMatrix;
+
+                if(pos.X == 1)
+                {
+                    var rotation = Matrix4X4.CreateRotationX(currentAngle);
+                    modelMatrix = translation * rotation;   
+                }
+                else
+                {
+                    modelMatrix = translation;
+                }
 
                 SetMatrix(modelMatrix, ModelMatrixVariableName);
                 DrawModelObject(cubes[i]);

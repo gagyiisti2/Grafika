@@ -15,6 +15,8 @@ namespace Szeminarium
 
         const double AngleChangeStepSize = Math.PI / 180 * 5;
 
+        private Vector3D<float> target = Vector3D<float>.Zero;
+
         /// <summary>
         /// Gets the position of the camera.
         /// </summary>
@@ -44,8 +46,7 @@ namespace Szeminarium
         {
             get
             {
-                // For the moment the camera is always pointed at the origin.
-                return Vector3D<float>.Zero;
+                return target;
             }
         }
 
@@ -78,6 +79,29 @@ namespace Szeminarium
         public void DecreaseDistance()
         {
             DistanceToOrigin = DistanceToOrigin / DistanceScaleFactor;
+        }
+
+        public void MoveRight()
+        {
+            var forward = new Vector3D<float>(target.X - Position.X, target.Y - Position.Y, target.Z - Position.Z);
+            forward = Vector3D.Normalize(forward);
+
+            var right = Vector3D.Cross(forward, UpVector);
+            right = Vector3D.Normalize(right);
+
+            float speed = 0.5f; 
+            target = new Vector3D<float>(target.X + right.X * speed, target.Y + right.Y * speed, target.Z + right.Z * speed);
+        }
+        public void MoveLeft()
+        {
+            var forward = new Vector3D<float>(target.X - Position.X, target.Y - Position.Y, target.Z - Position.Z);
+            forward = Vector3D.Normalize(forward);
+
+            var right = Vector3D.Cross(forward, UpVector);
+            right = Vector3D.Normalize(right);
+
+            float speed = 0.5f;
+            target = new Vector3D<float>(target.X - right.X * speed, target.Y - right.Y * speed, target.Z - right.Z * speed);
         }
 
         private static Vector3D<float> GetPointFromAngles(double distanceToOrigin, double angleToMinZYPlane, double angleToMinZXPlane)
