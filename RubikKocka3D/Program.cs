@@ -1,7 +1,9 @@
 ﻿using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
+using Silk.NET.Vulkan;
 using Silk.NET.Windowing;
+using System.ComponentModel.Design;
 using System.Numerics;
 using Szeminarium;
 
@@ -14,13 +16,19 @@ namespace RubikKocka3D
         private static GL Gl;
 
         private static List<ModelObjectDescriptor> cubes = new List<ModelObjectDescriptor>();
-        private static List<Vector3> cubePositions = new List<Vector3>();
+        private static List<RubikPiece> pieces= new List<RubikPiece>();
 
         private static CameraDescriptor camera = new CameraDescriptor();
 
+        private static bool isAnimating = false;
         private static float currentAngle = 0f;
         private static float targetAngle = 0f;
-
+        private static int animatingLayer = 0; // -1, 0, 1
+        private static int rotationAxis = 1; // X:0, Y:1, Z:2
+        private static float rotationDirection = 1f; // 1, -1
+        private static Queue<Tuple<int, int, float>> shuffleQueue = new Queue<Tuple<int, int, float>>();
+        private static bool isSolved = true;
+        private static double totalTime = 0;
         private const string ModelMatrixVariableName = "uModel";
         private const string ViewMatrixVariableName = "uView";
         private const string ProjectionMatrixVariableName = "uProjection";
@@ -134,22 +142,97 @@ namespace RubikKocka3D
 
             Gl.UseProgram(program);
 
+            for (int x = -1; x <= 1; x++)
+            {
+                for (int y = -1; y <= 1; y++)
+                {
+                    for (int z = -1; z <= 1; z++)
+                    {
+
+                        var model = ModelObjectDescriptor.CreateCube(Gl, GenerateColors(x, y, z));
+                        var position = new Vector3D<float>(x, y, z);
+                        pieces.Add(new RubikPiece(position, model));
+                    }
+                }
+            }
+        }
+
+        private static void Start_Animation(int axis, int layer, float dir)
+        {
+            if (isAnimating) return;
+
+            isAnimating = true;
+            rotationAxis = axis; 
+            animatingLayer = layer;
+            rotationDirection = dir;
+            currentAngle = 0f;
+            targetAngle = (float)(Math.PI / 2) * dir;
         }
         private static void Keyboard_KeyDown(IKeyboard keyboard, Key key, int arg3)
         {
             switch (key)
             {
-                case Key.W:
-                    camera.IncreaseZXAngle();
+                /// Y tengely ->:
+                case Key.Q:
+                    Start_Animation(1, -1, 1f);
                     break;
                 case Key.A:
-                    camera.IncreaseZYAngle();
+                    Start_Animation(1, 0, 1f);
+                    break;
+                case Key.Z:
+                    Start_Animation(1, 1, 1f);
+                    break;
+                /// Y tengely <-:
+                case Key.W:
+                    Start_Animation(1, -1, -1f);
                     break;
                 case Key.S:
-                    camera.DecreaseZXAngle();
+                    Start_Animation(1, 0, -1f);
+                    break;
+                case Key.X:
+                    Start_Animation(1, 1, -1f);
+                    break;
+                /// X tengely ->:
+                case Key.U:
+                    Start_Animation(0, -1, 1f);
+                    break;
+                case Key.I:
+                    Start_Animation(0, 0, 1f);
+                    break;
+                case Key.O:
+                    Start_Animation(0, 1, 1f);
+                    break;
+                /// X tengely <-:
+                case Key.J:
+                    Start_Animation(0, -1, -1f);
+                    break;
+                case Key.K:
+                    Start_Animation(0, 0, -1f);
+                    break;
+                case Key.L:
+                    Start_Animation(0, 1, -1f);
+                    break;
+                /// r - random keveres:
+                case Key.R:
+                    if(shuffleQueue.Count == 0 && !isAnimating)
+                    {
+                        isSolved = false;
+                        Random r = new Random();
+                        for (int i = 0; i < 30; i++)
+                        {
+                            int axis = r.Next(0,2);
+                            int layer = r.Next(0,3);
+                            float dir = r.Next(0,2) == 0 ? -1f : 1f;
+                            shuffleQueue.Enqueue(new Tuple<int, int, float>(layer, axis, dir ));
+                        }
+                    }
+                    break;
+                /// Kocka forgatasa, megnezese iranyokbol:
+                case Key.E:
+                    camera.IncreaseZXAngle();
                     break;
                 case Key.D:
-                    camera.DecreaseZYAngle();
+                    camera.DecreaseZXAngle();
                     break;
                 case Key.Down:
                     camera.IncreaseDistance();
@@ -158,32 +241,62 @@ namespace RubikKocka3D
                     camera.DecreaseDistance();
                     break;
                 case Key.Right:
-                    camera.MoveRight();
+                    camera.DecreaseZYAngle();
                     break;
                 case Key.Left:
-                    camera.MoveLeft();
-                    break;
-                case Key.Space:
-                    targetAngle += (float)(Math.PI / 2); // 90 fokkal kell elforgatni
-                    break;
-                case Key.Backspace:
-                    targetAngle -= (float)(Math.PI / 2);
+                    camera.IncreaseZYAngle();
                     break;
             }
         }
         private static void GraphicWindow_Update(double deltaTime)
         {
-            float speed = (float)Math.PI * 1.5f;
-            if (currentAngle < targetAngle)
+            totalTime += deltaTime;
+            if (isAnimating)
             {
-                currentAngle += speed * (float)deltaTime;
-                if(currentAngle > targetAngle) currentAngle = targetAngle; 
+                float speed = (float)Math.PI * 1.5f;
+                currentAngle += speed * (float)deltaTime * rotationDirection;
+
+                if (rotationDirection > 0 && currentAngle >= targetAngle ||
+                    rotationDirection < 0 && currentAngle <= targetAngle)
+                {
+                    currentAngle = targetAngle;
+                    FinalizeRotation();
+
+                    if (shuffleQueue.Count > 0)
+                    {
+                        var next = shuffleQueue.Dequeue();
+                        Start_Animation(next.Item1, next.Item2, next.Item3);
+                    }
+                    else
+                    {
+                        CheckIfSolved();
+                    }
+                }
             }
-            else if (currentAngle > targetAngle)
+            else if (shuffleQueue.Count > 0)
             {
-                currentAngle -= speed * (float)deltaTime;
-                if (currentAngle < targetAngle) currentAngle = targetAngle;
+                // elso keveres
+                var next = shuffleQueue.Dequeue();
+                Start_Animation(next.Item1, next.Item2, next.Item3);
             }
+               
+        }
+
+        private static void CheckIfSolved()
+        {
+            bool solved = true;
+            foreach (var piece in pieces)
+            {
+                // Ha barhol nincs a helyen false
+                if (Math.Abs(piece.CurrentPosition.X - piece.OriginalPosition.X) > 0.1f ||
+                    Math.Abs(piece.CurrentPosition.Y - piece.OriginalPosition.Y) > 0.1f ||
+                    Math.Abs(piece.CurrentPosition.Z - piece.OriginalPosition.Z) > 0.1f)
+                {
+                    solved = false;
+                    break;
+                }
+            }
+            isSolved = solved;
         }
 
         private static unsafe void GraphicWindow_Render(double deltaTime)
@@ -198,39 +311,75 @@ namespace RubikKocka3D
             var projectionMatrix = Matrix4X4.CreatePerspectiveFieldOfView<float>((float)(Math.PI / 2), 1024f / 768f, 0.1f, 100f);
             SetMatrix(projectionMatrix, ProjectionMatrixVariableName);
 
-            for (int x = -1; x <= 1; x++)
+            var globalVictoryAnim = Matrix4X4<float>.Identity;
+            if (isSolved && !isAnimating && shuffleQueue.Count == 0)
             {
-                for (int y = -1; y <= 1; y++)
-                {
-                    for (int z = -1; z <= 1; z++)
-                    {
-
-                        cubes.Add(ModelObjectDescriptor.CreateCube(Gl, GenerateColors(x, y, z)));
-                        cubePositions.Add(new Vector3(x, y, z));
-                    }
-                }
+                float scale = 1.0f + 0.15f * (float)Math.Sin(totalTime * 3.0);
+                var scaleMatrix = Matrix4X4.CreateScale(scale);
+                var rotMatrix = Matrix4X4.CreateRotationY((float)totalTime);
+                globalVictoryAnim = scaleMatrix * rotMatrix;
             }
 
             float spacing = 1.1f;
-            for (int i = 0; i < cubes.Count; i++)
+            for (int i = 0; i < pieces.Count; i++)
             {
-                var pos = cubePositions[i];
-                var translation = Matrix4X4.CreateTranslation(pos.X * spacing, pos.Y * spacing, pos.Z * spacing);
+                var piece = pieces[i];
 
-                Matrix4X4<float> modelMatrix;
+                // Eltolas a megfelelo pozicioba
+                var translation = Matrix4X4.CreateTranslation(
+                    piece.CurrentPosition.X * spacing,
+                    piece.CurrentPosition.Y * spacing,
+                    piece.CurrentPosition.Z * spacing
+                );
 
-                if(pos.X == 1)
+                var animRotation = Matrix4X4<float>.Identity;
+
+                if (isAnimating)
                 {
-                    var rotation = Matrix4X4.CreateRotationX(currentAngle);
-                    modelMatrix = translation * rotation;   
-                }
-                else
-                {
-                    modelMatrix = translation;
-                }
+                    bool inLayerY = (rotationAxis == 1 && Math.Round(piece.CurrentPosition.Y) == animatingLayer);
+                    bool inLayerX = (rotationAxis == 0 && Math.Round(piece.CurrentPosition.X) == animatingLayer);
+                    if (inLayerY)
+                    {
+                        animRotation = Matrix4X4.CreateRotationY(currentAngle);
+                    }else if (inLayerX)
+                    {
+                        animRotation = Matrix4X4.CreateRotationX(currentAngle);
+                    }
+                } 
+
+                // Orientacioval, es eltolassal egyutt kirajzolas
+                var modelMatrix = piece.OrientationMatrix * translation * animRotation * globalVictoryAnim;
 
                 SetMatrix(modelMatrix, ModelMatrixVariableName);
-                DrawModelObject(cubes[i]);
+                DrawModelObject(piece.ModelDescriptor);
+            }
+        }
+
+        private static void FinalizeRotation()
+        {
+            isAnimating = false;
+            var finalRot = Matrix4X4<float>.Identity;
+
+            if (rotationAxis == 1) finalRot = Matrix4X4.CreateRotationY(targetAngle);
+            if (rotationAxis == 0) finalRot = Matrix4X4.CreateRotationX(targetAngle);
+
+            foreach (var piece in pieces)
+            {
+                bool inLayer = ((rotationAxis == 1 && Math.Round(piece.CurrentPosition.Y) == animatingLayer) || 
+                                (rotationAxis == 0 && Math.Round(piece.CurrentPosition.X) == animatingLayer));
+                if (inLayer)
+                {
+                    piece.OrientationMatrix = piece.OrientationMatrix * finalRot; // orientaciot felulirjuk
+
+                    var pos = piece.CurrentPosition;
+                    var newPos = Vector3D.Transform(pos, finalRot);
+
+                    piece.CurrentPosition = new Vector3D<float>(
+                        (float)Math.Round(newPos.X),
+                        (float)Math.Round(newPos.Y),
+                        (float)Math.Round(newPos.Z)
+                    );
+                }
             }
         }
 
@@ -262,7 +411,7 @@ namespace RubikKocka3D
                 throw new Exception("GL.GetError() returned " + error.ToString());
         }
 
-        private static float[] GenerateColors(int x, int y, int z) // 
+        private static float[] GenerateColors(int x, int y, int z) 
         {
             float[] colors = new float[96];
             for (int i = 0; i < 96; i++)

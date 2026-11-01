@@ -13,7 +13,7 @@ namespace Szeminarium
 
         const double DistanceScaleFactor = 1.1;
 
-        const double AngleChangeStepSize = Math.PI / 180 * 5;
+        const double AngleChangeStepSize = Math.PI / 180 * 10;
 
         private Vector3D<float> target = Vector3D<float>.Zero;
 
