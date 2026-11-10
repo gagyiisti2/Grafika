@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="Dezsa/Dezsa.csproj" Id="53bc2ec9-c725-45c6-a571-72e18dbf905e" />
   <Project Path="GrafikaHomework/GrafikaHomework.csproj" />
+  <Project Path="PhongModel/PhongModel.csproj" Id="c828978a-bec7-4c1b-b0a9-dc7927867b14" />
   <Project Path="RubikKocka/RubikKocka.csproj" Id="0040babd-5e5d-4218-bb8c-fa95490bba97" />
   <Project Path="RubikKocka3D/RubikKocka3D.csproj" Id="7cd9ec2d-1830-4704-9823-18ce49ae6c77" />
 </Solution>
