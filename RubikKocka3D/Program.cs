@@ -6,6 +6,8 @@ using Silk.NET.Windowing;
 using System.ComponentModel.Design;
 using System.Numerics;
 using Szeminarium;
+using ImGuiNET;
+using Silk.NET.OpenGL.Extensions.ImGui;
 
 namespace RubikKocka3D
 {
@@ -16,10 +18,11 @@ namespace RubikKocka3D
         private static GL Gl;
 
         private static List<ModelObjectDescriptor> cubes = new List<ModelObjectDescriptor>();
-        private static List<RubikPiece> pieces= new List<RubikPiece>();
+        private static List<RubikPiece> pieces = new List<RubikPiece>();
 
         private static CameraDescriptor camera = new CameraDescriptor();
 
+        // Pozicio, animacio
         private static bool isAnimating = false;
         private static float currentAngle = 0f;
         private static float targetAngle = 0f;
@@ -29,38 +32,84 @@ namespace RubikKocka3D
         private static Queue<Tuple<int, int, float>> shuffleQueue = new Queue<Tuple<int, int, float>>();
         private static bool isSolved = true;
         private static double totalTime = 0;
+
+        // Nev konstansok
         private const string ModelMatrixVariableName = "uModel";
         private const string ViewMatrixVariableName = "uView";
         private const string ProjectionMatrixVariableName = "uProjection";
+        private const string NormalMatrixVariableName = "uNormal";
+        private const string LightColorVariableName = "lightColor";
+        private const string LightPositionVariableName = "lightPos";
+        private const string ViewPosVariableName = "viewPos";
+        private const string ShininessVariableName = "shininess";
+
+        // Fenyek
+        private static Vector3 LightColor = new(1f, 1f, 1f);
+        private static Vector3 LightPosition = new(3f, 4f, 5f);
+        private static float Shininess = 50f;
+
+        // Gui
+        private static IInputContext inputContext = null!;
+        private static ImGuiController controller = null!;
 
         private static readonly string VertexShaderSource = @"
         #version 330 core
         layout (location = 0) in vec3 vPos;
 		layout (location = 1) in vec4 vCol;
+		layout (location = 2) in vec3 vNorm;
 
         uniform mat4 uModel;
+        uniform mat3 uNormal;
         uniform mat4 uView;
         uniform mat4 uProjection;
 
 		out vec4 outCol;
+		out vec3 outNormal;
+		out vec3 outWorldPosition;
         
         void main()
         {
-			outCol = vCol;
-            gl_Position = uProjection*uView*uModel*vec4(vPos.x, vPos.y, vPos.z, 1.0);
+            outCol = vCol;
+            gl_Position = uProjection*uView*uModel*vec4(vPos, 1.0);
+            outNormal = uNormal*vNorm;
+            outWorldPosition = vec3(uModel*vec4(vPos, 1.0));
         }
         ";
 
 
         private static readonly string FragmentShaderSource = @"
         #version 330 core
+        
+        uniform vec3 lightColor;
+        uniform vec3 lightPos;
+        uniform vec3 viewPos;
+        uniform float shininess;
+
         out vec4 FragColor;
-		
+
 		in vec4 outCol;
+        in vec3 outNormal;
+        in vec3 outWorldPosition;
 
         void main()
         {
-            FragColor = outCol;
+            float ambientStrength = 0.2;
+            vec3 ambient = ambientStrength * lightColor;
+
+            float diffuseStrength = 0.3;
+            vec3 norm = normalize(outNormal);
+            vec3 lightDir = normalize(lightPos - outWorldPosition);
+            float diff = max(dot(norm, lightDir), 0.0);
+            vec3 diffuse = diff * lightColor * diffuseStrength;
+
+            float specularStrength = 0.5;
+            vec3 viewDir = normalize(viewPos - outWorldPosition);
+            vec3 reflectDir = reflect(-lightDir, norm);
+            float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess) / max(dot(norm,viewDir), -dot(norm,lightDir));
+            vec3 specular = specularStrength * spec * lightColor;  
+
+            vec3 result = (ambient + diffuse + specular) * outCol.xyz;
+            FragColor = vec4(result, outCol.w);
         }
         ";
 
@@ -70,7 +119,7 @@ namespace RubikKocka3D
         {
             WindowOptions windowOptions = WindowOptions.Default;
             windowOptions.Title = "Grafika szeminárium";
-            windowOptions.Size = new Silk.NET.Maths.Vector2D<int>(500, 500);
+            windowOptions.Size = new Silk.NET.Maths.Vector2D<int>(1024, 768);
 
             graphicWindow = Window.Create(windowOptions);
 
@@ -84,9 +133,9 @@ namespace RubikKocka3D
 
         private static void GraphicWindow_Closing()
         {
-            foreach(var cube in cubes)
+            foreach (var piece in pieces)
             {
-                cube.Dispose();
+                piece.ModelDescriptor.Dispose();
             }
             Gl.DeleteProgram(program);
         }
@@ -103,11 +152,13 @@ namespace RubikKocka3D
             Gl.Enable(EnableCap.DepthTest);
             Gl.DepthFunc(DepthFunction.Lequal);
 
-            var inputContext = graphicWindow.CreateInput();
+            inputContext = graphicWindow.CreateInput();
             foreach (var keyboard in inputContext.Keyboards)
             {
                 keyboard.KeyDown += Keyboard_KeyDown;
             }
+
+            controller = new ImGuiController(Gl, graphicWindow, inputContext);
 
             uint vshader = Gl.CreateShader(ShaderType.VertexShader);
             uint fshader = Gl.CreateShader(ShaderType.FragmentShader);
@@ -162,7 +213,7 @@ namespace RubikKocka3D
             if (isAnimating) return;
 
             isAnimating = true;
-            rotationAxis = axis; 
+            rotationAxis = axis;
             animatingLayer = layer;
             rotationDirection = dir;
             currentAngle = 0f;
@@ -170,6 +221,8 @@ namespace RubikKocka3D
         }
         private static void Keyboard_KeyDown(IKeyboard keyboard, Key key, int arg3)
         {
+            if (ImGui.GetIO().WantCaptureKeyboard)
+                return;
             switch (key)
             {
                 /// Y tengely ->:
@@ -214,18 +267,7 @@ namespace RubikKocka3D
                     break;
                 /// r - random keveres:
                 case Key.R:
-                    if(shuffleQueue.Count == 0 && !isAnimating)
-                    {
-                        isSolved = false;
-                        Random r = new Random();
-                        for (int i = 0; i < 30; i++)
-                        {
-                            int axis = r.Next(0,2);
-                            int layer = r.Next(0,3);
-                            float dir = r.Next(0,2) == 0 ? -1f : 1f;
-                            shuffleQueue.Enqueue(new Tuple<int, int, float>(layer, axis, dir ));
-                        }
-                    }
+                    StartShuffle();
                     break;
                 /// Kocka forgatasa, megnezese iranyokbol:
                 case Key.E:
@@ -248,6 +290,23 @@ namespace RubikKocka3D
                     break;
             }
         }
+
+        private static void StartShuffle()
+        {
+            if (shuffleQueue.Count > 0 || isAnimating)
+                return;
+
+            isSolved = false;
+            Random r = new Random();
+            for (int i = 0; i < 30; i++)
+            {
+                int axis = r.Next(0, 2);
+                int layer = r.Next(-1, 2);
+                float dir = r.Next(0, 2) == 0 ? -1f : 1f;
+                shuffleQueue.Enqueue(new Tuple<int, int, float>(axis, layer, dir));
+            }
+        }
+
         private static void GraphicWindow_Update(double deltaTime)
         {
             totalTime += deltaTime;
@@ -279,7 +338,8 @@ namespace RubikKocka3D
                 var next = shuffleQueue.Dequeue();
                 Start_Animation(next.Item1, next.Item2, next.Item3);
             }
-               
+
+            controller.Update((float)deltaTime);
         }
 
         private static void CheckIfSolved()
@@ -310,6 +370,8 @@ namespace RubikKocka3D
 
             var projectionMatrix = Matrix4X4.CreatePerspectiveFieldOfView<float>((float)(Math.PI / 2), 1024f / 768f, 0.1f, 100f);
             SetMatrix(projectionMatrix, ProjectionMatrixVariableName);
+
+            SetLightingUniforms();
 
             var globalVictoryAnim = Matrix4X4<float>.Identity;
             if (isSolved && !isAnimating && shuffleQueue.Count == 0)
@@ -350,8 +412,72 @@ namespace RubikKocka3D
                 // Orientacioval, es eltolassal egyutt kirajzolas
                 var modelMatrix = piece.OrientationMatrix * translation * animRotation * globalVictoryAnim;
 
-                SetMatrix(modelMatrix, ModelMatrixVariableName);
+                SetModelMatrix(modelMatrix);
                 DrawModelObject(piece.ModelDescriptor);
+            }
+            DrawUi();
+            controller.Render();
+        }
+
+        private static void DrawUi()
+        {
+            ImGui.SetNextWindowPos(new Vector2(10,10), ImGuiCond.FirstUseEver);
+            ImGui.Begin("Navigation", ImGuiWindowFlags.AlwaysAutoResize);
+
+            // Feny szine:
+            ImGui.Text("Light color");
+            ImGui.SliderFloat("R", ref LightColor.X, 0f, 1f);
+            ImGui.SliderFloat("G", ref LightColor.Y, 0f, 1f);
+            ImGui.SliderFloat("B", ref LightColor.Z, 0f, 1f);
+
+            ImGui.Separator();
+
+            // Feny pozicio
+            ImGui.Text("Light position");
+            ImGui.InputFloat("X", ref LightPosition.X, 0f, 0f, "%.2f");
+            ImGui.InputFloat("Y", ref LightPosition.Y, 0f, 0f, "%.2f");
+            ImGui.InputFloat("Z", ref LightPosition.Z, 0f, 0f, "%.2f");
+
+            ImGui.Separator();
+
+            // Forgasok:
+            ImGui.BeginDisabled(isAnimating || shuffleQueue.Count > 0);
+
+            DrawRotationButtons("Around Y axis", 1, ["Bottom", "Middle", "Top"]);
+            ImGui.Spacing();
+            DrawRotationButtons("Around X axis", 0, ["Left", "Middle", "Right"]);
+            ImGui.Spacing();
+
+            if (ImGui.Button("Shuffle"))
+            {
+                StartShuffle();
+            }
+
+            ImGui.EndDisabled();
+
+            if (isSolved && !isAnimating && shuffleQueue.Count == 0)
+            {
+                ImGui.Text("Solved!");
+            }
+
+            ImGui.End();
+        }
+
+        private static void DrawRotationButtons(string title, int axis, string[] layerNames)
+        {
+            ImGui.Text(title);
+            for (int layer = -1; layer <= 1; layer++)
+            {
+                ImGui.Text(layerNames[layer + 1]);
+                ImGui.SameLine(90);
+
+                if (ImGui.Button($"+90##{axis}_{layer}_p")) // ## utan azonosito
+                    Start_Animation(axis, layer, 1f);
+
+                ImGui.SameLine();
+
+                if (ImGui.Button($"-90##{axis}_{layer}_n"))
+                    Start_Animation(axis, layer, -1f);
             }
         }
 
@@ -392,15 +518,71 @@ namespace RubikKocka3D
             Gl.BindVertexArray(0);
         }
 
+        private static unsafe void SetModelMatrix(Matrix4X4<float> modelMatrix)
+        {
+            SetMatrix(modelMatrix, ModelMatrixVariableName);
+
+            var modelMatrixWithoutTranslation = new Matrix4X4<float>(modelMatrix.Row1, modelMatrix.Row2, modelMatrix.Row3, modelMatrix.Row4);
+            modelMatrixWithoutTranslation.M41 = 0;
+            modelMatrixWithoutTranslation.M42 = 0;
+            modelMatrixWithoutTranslation.M43 = 0;
+            modelMatrixWithoutTranslation.M44 = 1;
+
+            Matrix4X4<float> modelInvers;
+            Matrix4X4.Invert<float>(modelMatrixWithoutTranslation, out modelInvers);
+            Matrix3X3<float> normalMatrix = new Matrix3X3<float>(Matrix4X4.Transpose(modelInvers));
+            
+            int location = Gl.GetUniformLocation(program, NormalMatrixVariableName);
+            if (location == -1)
+            {
+                throw new Exception($"{NormalMatrixVariableName} uniform not found on shader.");
+            }
+            Gl.UniformMatrix3(location, 1, false, (float*)&normalMatrix);
+            CheckError();
+        }
+
         private static unsafe void SetMatrix(Matrix4X4<float> mx, string uniformName)
         {
             int location = Gl.GetUniformLocation(program, uniformName);
             if (location == -1)
             {
-                throw new Exception($"{ViewMatrixVariableName} uniform not found on shader.");
+                throw new Exception($"{uniformName} uniform not found on shader.");
             }
 
             Gl.UniformMatrix4(location, 1, false, (float*)&mx);
+            CheckError();
+        }
+
+        private static void SetLightingUniforms()
+        {
+            SetUniform3(LightColorVariableName, LightColor);
+            SetUniform3(LightPositionVariableName, LightPosition);
+
+            var cameraPosition = camera.Position;
+            SetUniform3(ViewPosVariableName, new Vector3(cameraPosition.X, cameraPosition.Y, cameraPosition.Z));
+
+            SetUniform1(ShininessVariableName, Shininess);
+        }
+
+        private static void SetUniform3(string name, Vector3 value)
+        {
+            int location = Gl.GetUniformLocation(program, name);
+            if (location == -1)
+            {
+                throw new Exception($"{name} uniform not found on shader.");
+            }
+            Gl.Uniform3(location, value.X, value.Y, value.Z);
+            CheckError();
+        }
+
+        private static void SetUniform1(string name, float value)
+        {
+            int location = Gl.GetUniformLocation(program, name);
+            if (location == -1)
+            {
+                throw new Exception($"{name} uniform not found on shader.");
+            }
+            Gl.Uniform1(location, value);
             CheckError();
         }
 

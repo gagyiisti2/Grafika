@@ -27,37 +27,43 @@ namespace RubikKocka3D
             Gl.BindVertexArray(vao);
 
             // counter clockwise is front facing
+            // One row: position (x,y,z), normal vector(nx,ny,nz)
             var vertexArray = new float[] {
-                -0.5f, 0.5f, 0.5f,
-                0.5f, 0.5f, 0.5f,
-                0.5f, 0.5f, -0.5f,
-                -0.5f, 0.5f, -0.5f,
+                // Top                        
+                -0.5f, 0.5f, 0.5f,    0f, 1f, 0f,
+                0.5f, 0.5f, 0.5f,     0f, 1f, 0f,
+                0.5f, 0.5f, -0.5f,    0f, 1f, 0f,
+                -0.5f, 0.5f, -0.5f,   0f, 1f, 0f,
 
-                -0.5f, 0.5f, 0.5f,
-                -0.5f, -0.5f, 0.5f,
-                0.5f, -0.5f, 0.5f,
-                0.5f, 0.5f, 0.5f,
+                // Front
+                -0.5f, 0.5f, 0.5f,    0f, 0f, 1f,
+                -0.5f, -0.5f, 0.5f,   0f, 0f, 1f,
+                0.5f, -0.5f, 0.5f,    0f, 0f, 1f,
+                0.5f, 0.5f, 0.5f,     0f, 0f, 1f,
 
-                -0.5f, 0.5f, 0.5f,
-                -0.5f, 0.5f, -0.5f,
-                -0.5f, -0.5f, -0.5f,
-                -0.5f, -0.5f, 0.5f,
+                // Left
+                -0.5f, 0.5f, 0.5f,    -1f, 0f, 0f,
+                -0.5f, 0.5f, -0.5f,   -1f, 0f, 0f,
+                -0.5f, -0.5f, -0.5f,  -1f, 0f, 0f,
+                -0.5f, -0.5f, 0.5f,   -1f, 0f, 0f,
 
-                -0.5f, -0.5f, 0.5f,
-                0.5f, -0.5f, 0.5f,
-                0.5f, -0.5f, -0.5f,
-                -0.5f, -0.5f, -0.5f,
+                // Bottom
+                -0.5f, -0.5f, 0.5f,   0f, -1f, 0f,
+                0.5f, -0.5f, 0.5f,    0f, -1f, 0f,
+                0.5f, -0.5f, -0.5f,   0f, -1f, 0f,
+                -0.5f, -0.5f, -0.5f,  0f, -1f, 0f,
 
-                0.5f, 0.5f, -0.5f,
-                -0.5f, 0.5f, -0.5f,
-                -0.5f, -0.5f, -0.5f,
-                0.5f, -0.5f, -0.5f,
+                // Back
+                0.5f, 0.5f, -0.5f,    0f, 0f, -1f,
+                -0.5f, 0.5f, -0.5f,   0f, 0f, -1f,
+                -0.5f, -0.5f, -0.5f,  0f, 0f, -1f,
+                0.5f, -0.5f, -0.5f,   0f, 0f, -1f,
 
-                0.5f, 0.5f, 0.5f,
-                0.5f, 0.5f, -0.5f,
-                0.5f, -0.5f, -0.5f,
-                0.5f, -0.5f, 0.5f,
-
+                // Right
+                0.5f, 0.5f, 0.5f,     1f, 0f, 0f,
+                0.5f, 0.5f, -0.5f,    1f, 0f, 0f,
+                0.5f, -0.5f, -0.5f,   1f, 0f, 0f,
+                0.5f, -0.5f, 0.5f,    1f, 0f, 0f,
             };
 
             uint[] indexArray = new uint[] {
@@ -80,23 +86,32 @@ namespace RubikKocka3D
                 20, 23, 22
             };
 
+            uint offsetPos = 0;
+            uint offsetNormal = offsetPos + (3 * sizeof(float));
+            uint vertexSize = offsetNormal + (3 * sizeof(float));
+
             uint vertices = Gl.GenBuffer();
             Gl.BindBuffer(GLEnum.ArrayBuffer, vertices);
             Gl.BufferData(GLEnum.ArrayBuffer, (ReadOnlySpan<float>)vertexArray.AsSpan(), GLEnum.StaticDraw);
-            Gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 0, null);
+            Gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, vertexSize, (void*)offsetPos);
             Gl.EnableVertexAttribArray(0);
-            Gl.BindBuffer(GLEnum.ArrayBuffer, 0);
+            Gl.VertexAttribPointer(2, 3, VertexAttribPointerType.Float, false, vertexSize, (void*)offsetNormal);
+            Gl.EnableVertexAttribArray(2);
+           
 
             uint colors = Gl.GenBuffer();
             Gl.BindBuffer(GLEnum.ArrayBuffer, colors);
             Gl.BufferData(GLEnum.ArrayBuffer, (ReadOnlySpan<float>)colorArray.AsSpan(), GLEnum.StaticDraw);
             Gl.VertexAttribPointer(1, 4, VertexAttribPointerType.Float, false, 0, null);
             Gl.EnableVertexAttribArray(1);
-            Gl.BindBuffer(GLEnum.ArrayBuffer, 0);
+            
 
             uint indices = Gl.GenBuffer();
             Gl.BindBuffer(GLEnum.ElementArrayBuffer, indices);
             Gl.BufferData(GLEnum.ElementArrayBuffer, (ReadOnlySpan<uint>)indexArray.AsSpan(), GLEnum.StaticDraw);
+
+            Gl.BindVertexArray(0);
+            Gl.BindBuffer(GLEnum.ArrayBuffer, 0);
             Gl.BindBuffer(GLEnum.ElementArrayBuffer, 0);
 
             return new ModelObjectDescriptor() {Vao= vao, Vertices = vertices, Colors = colors, Indices = indices, IndexArrayLength = (uint)indexArray.Length, Gl = Gl};
