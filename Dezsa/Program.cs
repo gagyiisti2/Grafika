@@ -38,12 +38,18 @@ namespace Dezsa
         private static readonly float BarellOuterRadius = (float)(StaveWidth / 2 / Math.Sin(HalfAngle));
         private static readonly float BarrellOffsetX = BarellOuterRadius + GapBetweenBarrels / 2;
 
+        // Guard vagy Phong
+        private static uint phongProgram;
+        private static uint gouraudProgram;
+
+        private static int ShadingMode = 0; // 0 - phong, 1 - gouraud
+
         private const string ModelMatrixVariableName = "uModel";
         private const string NormalMatrixVariableName = "uNormal";
         private const string ViewMatrixVariableName = "uView";
         private const string ProjectionMatrixVariableName = "uProjection";
 
-        private static readonly string VertexShaderSource = @"
+        private static readonly string PhongVertexShaderSource = @"
         #version 330 core
         layout (location = 0) in vec3 vPos;
         layout (location = 1) in vec4 vCol;
@@ -66,12 +72,58 @@ namespace Dezsa
             outWorldPosition = vec3(uModel*vec4(vPos.x, vPos.y, vPos.z, 1.0));
         }
         ";
+
+        private static readonly string GouraudVertexShaderSource = @"
+        #version 330 core
+        layout (location = 0) in vec3 vPos;
+        layout (location = 1) in vec4 vCol;
+        layout (location = 2) in vec3 vNorm;
+ 
+        uniform mat4 uModel;
+        uniform mat3 uNormal;
+        uniform mat4 uView;
+        uniform mat4 uProjection;
+
+        uniform vec3 lightColor;
+        uniform vec3 lightPos;
+        uniform vec3 viewPos;
+        uniform float shininess;
+ 
+        out vec4 outCol;
+ 
+        void main()
+        {
+            vec4 worldPosition = uModel * vec4(vPos, 1.0);
+            gl_Position = uProjection * uView * worldPosition;
+
+            vec3 worldPos = worldPosition.xyz;
+            vec3 norm = normalize(uNormal * vNorm);
+            
+            float ambientStrength = 0.2;
+            vec3 ambient = ambientStrength * lightColor;
+            
+            float diffuseStrength = 0.3;
+            vec3 lightDir = normalize(lightPos - worldPos);
+            float diff = max(dot(norm, lightDir), 0.0);
+            vec3 diffuse = diff * lightColor * diffuseStrength;
+
+            float specularStrength = 0.5;
+            vec3 viewDir = normalize(viewPos - worldPos);
+            vec3 reflectDir = reflect(-lightDir, norm);
+            float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess) / max(dot(norm,viewDir), -dot(norm,lightDir));
+            vec3 specular = specularStrength * spec * lightColor;
+
+            vec3 result = (ambient + diffuse + specular) * vCol.rgb;
+            outCol = vec4(result, vCol.a);
+        }
+        ";
+
         private const string LightColorVariableName = "lightColor";
         private const string LightPositionVariableName = "lightPos";
         private const string ViewPosVariableName = "viewPos";
         private const string ShininessVariableName = "shininess";
 
-        private static readonly string FragmentShaderSource = @"
+        private static readonly string PhongFragmentShaderSource = @"
         #version 330 core
  
         uniform vec3 lightColor;
@@ -107,10 +159,23 @@ namespace Dezsa
         }
         ";
 
+        private static readonly string GouraudFragmentShaderSource = @"
+        #version 330 core
+ 
+        out vec4 FragColor;
+ 
+        in vec4 outCol;
+ 
+        void main()
+        {
+            FragColor = outCol;
+        }
+        ";
+
         static void Main(string[] args)
         {
             WindowOptions windowOptions = WindowOptions.Default;
-            windowOptions.Title = "Dezsa - Phong";
+            windowOptions.Title = "Dezsa";
             windowOptions.Size = new Vector2D<int>(1000, 600);
 
             // on some systems there is no depth buffer by default, so we need to make sure one is created
@@ -152,7 +217,8 @@ namespace Dezsa
 
             SetUpObjects();
 
-            LinkProgram();
+            phongProgram = CreateProgram(PhongVertexShaderSource, PhongFragmentShaderSource);
+            gouraudProgram = CreateProgram(GouraudVertexShaderSource, GouraudFragmentShaderSource);
 
             Gl.Enable(EnableCap.CullFace);
 
@@ -160,33 +226,43 @@ namespace Dezsa
             Gl.DepthFunc(DepthFunction.Lequal);
         }
 
-        private static void LinkProgram()
+        private static uint CreateProgram(string vertexSource, string fragmentSource)
         {
-            uint vshader = Gl.CreateShader(ShaderType.VertexShader);
-            uint fshader = Gl.CreateShader(ShaderType.FragmentShader);
+            uint vshader = CompileShader(ShaderType.VertexShader, vertexSource);
+            uint fshader = CompileShader(ShaderType.FragmentShader, fragmentSource);
 
-            Gl.ShaderSource(vshader, VertexShaderSource);
-            Gl.CompileShader(vshader);
-            Gl.GetShader(vshader, ShaderParameterName.CompileStatus, out int vStatus);
-            if (vStatus != (int)GLEnum.True)
-                throw new Exception("Vertex shader failed to compile: " + Gl.GetShaderInfoLog(vshader));
+            uint newProgram = Gl.CreateProgram();
+            Gl.AttachShader(newProgram, vshader);
+            Gl.AttachShader(newProgram, fshader);
+            Gl.LinkProgram(newProgram);
 
-            Gl.ShaderSource(fshader, FragmentShaderSource);
-            Gl.CompileShader(fshader);
-
-            program = Gl.CreateProgram();
-            Gl.AttachShader(program, vshader);
-            Gl.AttachShader(program, fshader);
-            Gl.LinkProgram(program);
-            Gl.GetProgram(program, GLEnum.LinkStatus, out var status);
+            Gl.GetProgram(newProgram, GLEnum.LinkStatus, out int status);
             if (status == 0)
             {
-                Console.WriteLine($"Error linking shader {Gl.GetProgramInfoLog(program)}");
+                throw new Exception("Error linking shader: " + Gl.GetProgramInfoLog(newProgram));
             }
-            Gl.DetachShader(program, vshader);
-            Gl.DetachShader(program, fshader);
+
+            Gl.DetachShader(newProgram, vshader);
+            Gl.DetachShader(newProgram, fshader);
             Gl.DeleteShader(vshader);
             Gl.DeleteShader(fshader);
+
+            return newProgram;
+        }
+
+        private static uint CompileShader(ShaderType type, string source)
+        {
+            uint shader = Gl.CreateShader(type);
+            Gl.ShaderSource(shader, source);
+            Gl.CompileShader(shader);
+
+            Gl.GetShader(shader, ShaderParameterName.CompileStatus, out int status);
+            if (status != (int)GLEnum.True)
+            {
+                throw new Exception($"{type} failed to compile: " + Gl.GetShaderInfoLog(shader));
+            }
+
+            return shader;
         }
 
         private static void Keyboard_KeyDown(IKeyboard keyboard, Key key, int arg3)
@@ -227,7 +303,7 @@ namespace Dezsa
             Gl.Clear(ClearBufferMask.ColorBufferBit);
             Gl.Clear(ClearBufferMask.DepthBufferBit);
 
-
+            program = ShadingMode == 0 ? phongProgram : gouraudProgram;
             Gl.UseProgram(program);
 
             SetViewMatrix();
@@ -245,6 +321,12 @@ namespace Dezsa
             //ImGuiNET.ImGui.ShowDemoWindow();
             ImGuiNET.ImGui.Begin("Lighting properties",
                 ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoTitleBar);
+
+            ImGuiNET.ImGui.Text("Arnyalas");
+            ImGuiNET.ImGui.RadioButton("Phong", ref ShadingMode, 0);
+            ImGuiNET.ImGui.SameLine();
+            ImGuiNET.ImGui.RadioButton("Gouraud", ref ShadingMode, 1);
+            
             ImGuiNET.ImGui.SliderFloat("Shininess", ref Shininess, 1, 200);
             ImGuiNET.ImGui.End();
 
@@ -364,7 +446,8 @@ namespace Dezsa
         {
             smoothStave.ReleaseGlStave();
             flatStave.ReleaseGlStave();
-            Gl.DeleteProgram(program);
+            Gl.DeleteProgram(phongProgram);
+            Gl.DeleteProgram(gouraudProgram);
         }
 
         private static unsafe void SetProjectionMatrix()
@@ -377,7 +460,7 @@ namespace Dezsa
 
             if (location == -1)
             {
-                throw new Exception($"{ViewMatrixVariableName} uniform not found on shader.");
+                throw new Exception($"{ProjectionMatrixVariableName} uniform not found on shader.");
             }
 
             Gl.UniformMatrix4(location, 1, false, (float*)&projectionMatrix);
